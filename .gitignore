@@ -1,0 +1,7 @@
+# personal data never belongs in this repository
+*backup*.json
+one-hub-data*.json
+*.xlsx
+*.docx
+*.pdf
+.claude/
