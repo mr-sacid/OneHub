@@ -3,5 +3,5 @@
 // Never put the "service_role" or "secret" key here.
 window.HUB_CONFIG = {
   url: 'https://avijlkaksppwytuumqll.supabase.co',
-  key: ''
+  key: 'sb_publishable_n6yUqzW8a9Ob5WYDtaazPw_VR8JOwdY'
 };
