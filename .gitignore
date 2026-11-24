@@ -5,3 +5,4 @@ one-hub-data*.json
 *.docx
 *.pdf
 .claude/
+supabase/.temp/
