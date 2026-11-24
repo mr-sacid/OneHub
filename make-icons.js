@@ -7,7 +7,7 @@ const crcTable = [...Array(256)].map((_, n) => { let c = n; for (let k = 0; k < 
 const crc = buf => { let c = 0xffffffff; for (const b of buf) c = crcTable[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
 const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const cr = Buffer.alloc(4); cr.writeUInt32BE(crc(td)); return Buffer.concat([len, td, cr]); };
 const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
-function icon(size, { pad = 0.2, rounded = true } = {}) {
+function icon(size, { pad = 0.2, rounded = true, mono = false } = {}) {
   const raw = Buffer.alloc((size * 4 + 1) * size), c = size / 2, R = size * (0.5 - pad), r = R * 0.56, corner = size * 0.22, SS = 3;
   for (let y = 0; y < size; y++) {
     raw[y * (size * 4 + 1)] = 0;
@@ -19,7 +19,8 @@ function icon(size, { pad = 0.2, rounded = true } = {}) {
         if (rounded) { const qx = Math.max(Math.abs(dx) - (c - corner), 0), qy = Math.max(Math.abs(dy) - (c - corner), 0); inside = Math.hypot(qx, qy) <= corner; }
         if (!inside) continue;
         let col = BG;
-        if (d <= R && d >= r) { const a = (Math.atan2(dx, -dy) / (2 * Math.PI) + 1) % 1 * HUES.length, i = Math.floor(a); col = mix(HUES[i % HUES.length], HUES[(i + 1) % HUES.length], a - i); }
+        if (mono) { if (d <= R && d >= r) col = [255, 255, 255]; else continue; }
+        else if (d <= R && d >= r) { const a = (Math.atan2(dx, -dy) / (2 * Math.PI) + 1) % 1 * HUES.length, i = Math.floor(a); col = mix(HUES[i % HUES.length], HUES[(i + 1) % HUES.length], a - i); }
         acc = [acc[0] + col[0], acc[1] + col[1], acc[2] + col[2], acc[3] + 255];
       }
       const n = SS * SS, cov = acc[3] / 255, o = y * (size * 4 + 1) + 1 + x * 4;
@@ -34,4 +35,5 @@ fs.writeFileSync(path.join(dir, 'icon-192.png'), icon(192));
 fs.writeFileSync(path.join(dir, 'icon-512.png'), icon(512));
 fs.writeFileSync(path.join(dir, 'icon-maskable-512.png'), icon(512, { pad: 0.27, rounded: false }));
 fs.writeFileSync(path.join(dir, 'apple-touch-icon.png'), icon(180, { rounded: false }));
+fs.writeFileSync(path.join(dir, 'badge-96.png'), icon(96, { pad: 0.08, rounded: false, mono: true }));
 console.log('icons written');

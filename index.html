@@ -144,7 +144,7 @@ h3{font-size:15px;font-weight:600}
 .link-btn:hover{color:var(--ink);text-decoration:underline}
 .stepper{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:99px;background:var(--surface);padding:1px}
 .stepper span{padding:0 6px;font-weight:500;font-size:14px;min-width:9.5em;text-align:center}
-input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],input[type=time],input[type=search],select,textarea{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:var(--r-md);padding:9px 12px;min-width:0}
+input[type=text],input[type=email],input[type=password],input[type=url],input[type=datetime-local],input[type=number],input[type=date],input[type=time],input[type=search],select,textarea{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:var(--r-md);padding:9px 12px;min-width:0}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--ink);outline-offset:-1px}
 textarea{resize:vertical}
 input[type=checkbox]{appearance:none;-webkit-appearance:none;width:20px;height:20px;border-radius:50%;border:1.6px solid var(--muted);background:transparent;flex:none;margin:0;display:grid;place-content:center;cursor:pointer}
@@ -505,16 +505,17 @@ function enterMode(m){mode=m;enterPending=true;render()}
 async function startSupa(){
   let cache=null;try{cache=JSON.parse(localStorage.getItem(SKEY)||'null')}catch(e){}
   const useCache=()=>{if(cache&&cache.S)COLS.forEach(c=>{if(Array.isArray(cache.S[c]))S[c]=cache.S[c]});outbox=(cache&&cache.outbox)||[]};
-  const offline=()=>{sbUser={id:cache.uid,email:cache.email};useCache();syncErr=true;enterMode('supa')};
+  const offline=()=>{sbUser={id:cache.uid,email:cache.email};useCache();syncErr=true;enterMode('supa');calCheck()};
   const acct=$('#acct-btn');if(acct)acct.hidden=false;
   try{
     await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js');
     sb=window.supabase.createClient(HC.url,HC.key);
     const got=await sb.auth.getSession(),ses=got.data&&got.data.session;
     sb.auth.onAuthStateChange((ev,s)=>{
-      if(ev==='SIGNED_OUT'){sbUser=null;COLS.forEach(c=>{S[c]=[]});outbox=[];try{localStorage.removeItem(SKEY)}catch(e){}mode='auth';render()}
+      if(ev==='SIGNED_OUT'){sbUser=null;COLS.forEach(c=>{S[c]=[]});outbox=[];calLinked=null;Object.keys(gcal).forEach(k=>delete gcal[k]);
+        try{localStorage.removeItem(SKEY);localStorage.removeItem('onehub.cal');localStorage.removeItem('onehub.callinked')}catch(e){}mode='auth';render()}
       else if(s&&s.user&&sbUser)sbUser=s.user});
-    if(ses){sbUser=ses.user;if(cache&&cache.uid===sbUser.id)useCache();enterMode('supa');pull()}
+    if(ses){sbUser=ses.user;if(cache&&cache.uid===sbUser.id)useCache();enterMode('supa');pull();calCheck()}
     else if(cache&&cache.uid&&navigator.onLine===false)offline();
     else{mode='auth';render()}
   }catch(e){if(cache&&cache.uid)offline();else{mode='auth';render();const m=$('#au-msg');if(m)m.textContent='The sign-in service could not be reached. Check your connection and reload.'}}
@@ -530,12 +531,65 @@ function authView(){return `<section class="hero" style="max-width:440px;width:1
     <div class="head-actions"><button class="btn btn-primary" type="submit">Sign in</button><button class="btn" type="submit" data-up="1">Create account</button></div>
   </form></section>`}
 function accountSheet(){openSheet(`<div class="sheet-body"><div class="grab" aria-hidden="true"></div><header><h2>Account and data</h2><button type="button" class="icon-btn" data-act="closeSheet" aria-label="Close">×</button></header>
-  <p class="muted">Signed in as ${esc(sbUser&&sbUser.email||'you')}. ${outbox.length?outbox.length+(outbox.length===1?' change is':' changes are')+' waiting to sync.':'Everything is synced.'}</p>
-  <div class="head-actions"><button class="btn" data-act="exportData" type="button">Download a backup</button><label class="btn" for="imp-file">Import a backup file</label><input id="imp-file" type="file" accept="application/json,.json" hidden data-chg="importData">
-    <span class="grow"></span><button class="btn" data-act="signOut" data-confirm="${outbox.length?'Sign out and drop unsynced changes?':'Sign out of this device?'}" type="button">Sign out</button></div>
-  <p class="muted" style="font-size:13px">Importing adds the file's entries to this hub and replaces any that have the same id.</p></div>`)}
+  <section class="stack" style="gap:8px"><h3>Notifications</h3><div id="notif-box" class="muted">Checking this device…</div></section>
+  <section class="stack" style="gap:8px"><h3>Google Calendar</h3><p class="muted">${calLinked?'Connected. Your events show on Today and in Schedule.':'Not connected.'}</p>
+    <div class="head-actions"><button class="btn" data-act="calConnect" type="button">${calLinked?'Change calendar address':'Connect Google Calendar'}</button>${calLinked?'<button class="btn" data-act="calUnlink" data-confirm="Disconnect the calendar?" type="button">Disconnect</button>':''}</div></section>
+  <section class="stack" style="gap:8px"><h3>Your data</h3>
+    <p class="muted">Signed in as ${esc(sbUser&&sbUser.email||'you')}. ${outbox.length?outbox.length+(outbox.length===1?' change is':' changes are')+' waiting to sync.':'Everything is synced.'}</p>
+    <div class="head-actions"><button class="btn" data-act="exportData" type="button">Download a backup</button><label class="btn" for="imp-file">Import a backup file</label><input id="imp-file" type="file" accept="application/json,.json" hidden data-chg="importData">
+      <span class="grow"></span><button class="btn" data-act="signOut" data-confirm="${outbox.length?'Sign out and drop unsynced changes?':'Sign out of this device?'}" type="button">Sign out</button></div>
+    <p class="muted" style="font-size:13px">Importing adds the file's entries to this hub and replaces any that have the same id.</p></section></div>`);
+  paintNotif()}
+
+/* ---------- server function: calendar and notifications ---------- */
+async function hubCall(body){
+  if(!sb||!sbUser)throw {code:'not_signed_in'};
+  let r;try{r=await sb.functions.invoke('hub',{body})}catch(e){throw {code:'server_unavailable'}}
+  if(r.error){let code='server_unavailable';try{const j=await r.error.context.json();if(j&&j.error)code=j.error}catch(e){}throw {code}}
+  return r.data||{}}
+function calCheck(){
+  try{const c=localStorage.getItem('onehub.callinked');if(c!=null&&calLinked==null)calLinked=c==='1';
+    const saved=JSON.parse(localStorage.getItem('onehub.cal')||'{}');Object.entries(saved).forEach(([k,v])=>{if(!gcal[k]&&v&&v.events)gcal[k]={events:v.events,at:v.at,stale:true}})}catch(e){}
+  scheduleRender();
+  hubCall({action:'calStatus'}).then(d=>{calLinked=!!d.linked;try{localStorage.setItem('onehub.callinked',calLinked?'1':'0')}catch(e){}scheduleRender()}).catch(()=>{})}
+function calConnectSheet(){openSheet(`<div class="sheet-body"><div class="grab" aria-hidden="true"></div><header><h2>Connect Google Calendar</h2><button type="button" class="icon-btn" data-act="closeSheet" aria-label="Close">×</button></header>
+  <ol class="ing"><li>On a computer, open <a href="https://calendar.google.com/calendar/r/settings" target="_blank" rel="noopener">Google Calendar settings</a>.</li>
+    <li>On the left under <b>Settings for my calendars</b>, click your calendar, then <b>Integrate calendar</b>.</li>
+    <li>Copy the <b>Secret address in iCal format</b> and paste it below.</li></ol>
+  <form data-sub="calLink" class="stack" style="gap:10px" novalidate><div class="fld"><label for="cal-url">Secret address in iCal format</label><input id="cal-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"></div>
+    <p class="f-err" id="cal-msg" role="status"></p><div class="head-actions"><button class="btn btn-primary" type="submit">Connect</button></div></form>
+  <p class="muted" style="font-size:13px">Anyone with this address can read your calendar, so it is kept on your hub's server and not shown again. One Hub only reads your calendar. New events can take a few minutes to appear.</p></div>`)}
+
+/* ---------- push notifications ---------- */
+function swReady(){return Promise.race([navigator.serviceWorker.ready,new Promise((_,rej)=>setTimeout(()=>rej(new Error('no worker')),4000))])}
+async function pushState(){
+  if(!HC||!HC.vapid||!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window))return 'unsupported';
+  if(Notification.permission==='denied')return 'denied';
+  try{const reg=await swReady();return (await reg.pushManager.getSubscription())?'on':'off'}catch(e){return 'unsupported'}}
+async function paintNotif(){
+  if(!$('#notif-box'))return;const st=await pushState(),b=$('#notif-box');if(!b)return;
+  const ios=/iPhone|iPad|iPod/.test(navigator.userAgent),installed=(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true;
+  const msg={unsupported:!HC||!HC.vapid?'Notifications are not set up on the server yet.':ios&&!installed?'On iPhone, notifications only work in the installed app. In Safari tap Share, then Add to Home Screen, and open One Hub from the Home Screen.':'This browser cannot show notifications from One Hub.',
+    denied:'Notifications are blocked for One Hub on this device. Allow them in your phone or browser settings, then come back here.',
+    off:'Turn these on to get assignment reminders on this device, even when the app is closed.',
+    on:'On for this device. Assignment reminders arrive even when the app is closed.'}[st];
+  b.innerHTML=`<p>${esc(msg)}</p>${st==='off'?'<div class="head-actions" style="margin-top:8px"><button class="btn btn-primary" data-act="pushOn" type="button">Turn on notifications</button></div>'
+    :st==='on'?'<div class="head-actions" style="margin-top:8px"><button class="btn" data-act="pushTest" type="button">Send a test</button><button class="btn" data-act="pushOff" type="button">Turn off on this device</button></div>':''}`}
+function b64u(s){const p='='.repeat((4-s.length%4)%4),b=atob((s+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(b,c=>c.charCodeAt(0))}
+async function dropDeviceSub(){try{const reg=await swReady(),sub=await reg.pushManager.getSubscription();if(sub){if(sb&&sbUser)await sb.from('hub_push_subs').delete().eq('user_id',sbUser.id).eq('endpoint',sub.endpoint);await sub.unsubscribe()}}catch(e){}}
+function nudgePush(){if(mode!=='supa')return;pushState().then(st=>{if(st==='off')toast('Reminder saved. Turn on notifications to get it on this device.','Turn on',()=>accountSheet())})}
+
+/* ---------- assignment reminders ---------- */
+const REMIND=[['none',"Don't remind me"],['eve','The evening before, 18:00'],['due9','On the due date, 9:00'],['custom','At a time I pick']];
+const localInput=iso=>{const d=new Date(iso);return isNaN(d)?'':ymd(d)+'T'+pad(d.getHours())+':'+pad(d.getMinutes())};
+function remindTime(kind,due,custom){
+  if(kind==='eve'||kind==='due9'){if(!due)return {err:'Pick a due date for this reminder, or choose "At a time I pick".'};
+    const d=pd(kind==='eve'?addDays(due,-1):due);d.setHours(kind==='eve'?18:9,0,0,0);return {at:d.toISOString()}}
+  if(kind==='custom'){const d=new Date(custom||'');if(!custom||isNaN(d))return {err:'Pick a time for the reminder.'};
+    if(d<new Date())return {err:'That reminder time has already passed.'};return {at:d.toISOString()}}
+  return {at:''}}
 function removeUndo(col,id,what){const rec=find(col,id)?clone(find(col,id)):null;remove(col,id);if(rec)toast(what+' deleted','Undo',()=>save(col,rec))}
-const DEF={name:'',currency:'$',unit:'kg',workoutTarget:3,goalWeight:null,vision:'',budgets:{},
+const DEF={name:'',currency:'$',unit:'kg',workoutTarget:3,goalWeight:null,vision:'',budgets:{},remindDefault:'eve',
   categories:['Food','Housing','Transport','Study','Fun','Health','Other']};
 const cfg=()=>({...DEF,...(find('settings','main')||{})});
 const saveCfg=patch=>saveClean('settings',{...clone(find('settings','main')||{}),...patch,id:'main'});
@@ -618,7 +672,9 @@ const mealsOn=d=>((find('mealweeks',weekStart(d))||{}).days||{})[d]||{};
 /* ---------- Google Calendar: read through the viewer's connector, shown but never stored ---------- */
 const GCAL='Google Calendar';let mcp=null;const gcal={};
 const DENIED=['needs_reauth','server_not_connected','selection_required','blocked_by_policy','approval_required','not_in_manifest','consent_required','not_granted','capability_disabled','capability_removed'];
-const calEnabled=()=>!!(mcp&&(find('settings','prefs')||{}).gcal);
+let calLinked=null;
+const calEnabled=()=>mode==='supa'?!!(calLinked&&(find('settings','prefs')||{}).gcal!==false):!!(mcp&&(find('settings','prefs')||{}).gcal);
+function calStore(){try{const keep={};Object.entries(gcal).filter(([k,v])=>v&&v.events).sort().slice(-8).forEach(([k,v])=>{keep[k]={events:v.events,at:v.at}});localStorage.setItem('onehub.cal',JSON.stringify(keep))}catch(e){}}
 function gcalNorm(e){
   const s=e.start||{},n=e.end||{},title=String(e.summary||'Untitled event').trim(),link=/^https:\/\//.test(e.htmlLink||'')?e.htmlLink:'',isDay=x=>/^\d{4}-\d{2}-\d{2}$/.test(x||'');
   if(isDay(s.date))return {title,link,allDay:true,from:s.date,to:isDay(n.date)&&n.date>s.date?addDays(n.date,-1):s.date};
@@ -628,15 +684,18 @@ function gcalNorm(e){
 }
 function gcalLoad(ws,refresh,retried){
   const prev=gcal[ws]||{};gcal[ws]={loading:true,events:prev.events||null,at:prev.at||0};
-  mcp.callTool(GCAL,'list_events',{startTime:ws+'T00:00:00',endTime:addDays(ws,7)+'T00:00:00',orderBy:'startTime',pageSize:100},{cache:{staleTime:300000,gcTime:3600000,refresh:!!refresh}})
+  (mode==='supa'?hubCall({action:'events',timeMin:pd(ws).toISOString(),timeMax:pd(addDays(ws,7)).toISOString(),fresh:!!refresh}).then(d=>({payload:d}))
+    :mcp.callTool(GCAL,'list_events',{startTime:ws+'T00:00:00',endTime:addDays(ws,7)+'T00:00:00',orderBy:'startTime',pageSize:100},{cache:{staleTime:300000,gcTime:3600000,refresh:!!refresh}}))
   .then(r=>{const p=r&&r.payload;if(!p||typeof p!=='object')throw {code:'upstream_error'};
     const list=Array.isArray(p.events)?p.events:[];
-    gcal[ws]={events:list.filter(e=>e&&e.status!=='cancelled').map(gcalNorm).filter(Boolean),at:(r.cache&&r.cache.storedAt)||Date.now()};scheduleRender()})
+    gcal[ws]={events:list.filter(e=>e&&e.status!=='cancelled').map(gcalNorm).filter(Boolean),at:(r.cache&&r.cache.storedAt)||Date.now()};
+    if(mode==='supa')calStore();scheduleRender()})
   .catch(err=>{const code=(err&&err.code)||'upstream_error';
+    if(code==='not_linked'){calLinked=false;try{localStorage.setItem('onehub.callinked','0')}catch(e){}}
     if(err&&err.retryable===true&&!retried){setTimeout(()=>gcalLoad(ws,refresh,true),Math.min(err.retryAfterMs||0,60000)+800+Math.random()*1200);return}
     gcal[ws]={error:code,events:DENIED.includes(code)?null:prev.events||null,at:prev.at||0};scheduleRender()});
 }
-function gcalEnsure(ws){if(calEnabled()&&!gcal[ws])gcalLoad(ws)}
+function gcalEnsure(ws){if(calEnabled()&&(!gcal[ws]||gcal[ws].stale))gcalLoad(ws)}
 function gcalEvents(date){const g=gcal[weekStart(date)];if(!calEnabled()||!g||!g.events)return [];
   return g.events.filter(e=>e.allDay?e.from<=date&&date<=e.to:e.date===date)}
 function dayItems(d){
@@ -648,14 +707,17 @@ const CALMSG={needs_reauth:'Google Calendar needs reconnecting. Do that in claud
   server_not_connected:'Google Calendar is not connected. Add it in claude.ai under Settings, Connectors, then try again.',
   selection_required:'You have more than one Google Calendar connector. Choose one when claude.ai asks, then try again.',
   blocked_by_policy:'Your organization does not allow Google Calendar on this page.',
-  tool_error:'Google Calendar answered with an error.',server_unavailable:'Google Calendar is not answering right now.'};
+  tool_error:'Google Calendar answered with an error.',server_unavailable:'Google Calendar is not answering right now.',
+  not_linked:'Google Calendar is not connected any more. Connect it again.',
+  ics_gone:'Google no longer accepts the saved calendar address. It may have been reset. Connect again with the new secret address.',
+  calendar_unavailable:'Google Calendar did not answer. Try again in a moment.',not_signed_in:'Sign in again to load your calendar.'};
 function calBar(ws){
   if(!calEnabled())return '';
   const g=gcal[ws]||{loading:true},n=(g.events||[]).length;let msg;
   if(g.error)msg=CALMSG[g.error]||(DENIED.includes(g.error)?'Google Calendar is not allowed for this page yet. Try again and allow it when asked.':'Google Calendar could not be reached.');
   else if(g.loading&&!g.events)msg='Loading Google Calendar…';
   else msg=`Google Calendar: ${n} ${n===1?'event':'events'} this week`+(g.at?', updated '+new Date(g.at).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}):'')+(g.loading?' (refreshing)':'');
-  return `<div class="gcal-line"><span class="${g.error?'t-warn':''}">${esc(msg)}${g.error&&g.events?' Showing the last events loaded.':''}</span><button class="link-btn" data-act="calRefresh" type="button">${g.error?'Try again':'Refresh'}</button><button class="link-btn" data-act="calHide" type="button">Hide calendar</button></div>`;
+  return `<div class="gcal-line"><span class="${g.error?'t-warn':''}">${esc(msg)}${g.error&&g.events?' Showing the last events loaded.':''}</span>${g.error==='ics_gone'?'<button class="link-btn" data-act="calConnect" type="button">Connect again</button>':`<button class="link-btn" data-act="calRefresh" type="button">${g.error?'Try again':'Refresh'}</button>`}<button class="link-btn" data-act="calHide" type="button">Hide calendar</button></div>`;
 }
 
 /* ---------- views ---------- */
@@ -712,7 +774,8 @@ function taskRow(x){const t=TODAY(),d=x.due?diffDays(x.due,t):null,done=x.status
   const tone=done?'':d!=null&&d<0?'t-bad':d!=null&&d<=2?'t-warn':'';
   return `<div class="row ${done?'done':''}"><input type="checkbox" id="tk-${x.id}" data-chg="taskDone" data-id="${x.id}" ${done?'checked':''} aria-label="Mark ${esc(x.title)} done">
     <div class="t"><button class="row-btn" data-act="editTask" data-id="${x.id}" type="button">${esc(x.title)}</button>
-    <small>${[x.course,x.status==='doing'?'In progress':'',x.priority==='high'&&!done?'High priority':''].filter(Boolean).map(esc).join(' · ')}</small></div>
+    <small>${[x.course,x.status==='doing'?'In progress':'',x.priority==='high'&&!done?'High priority':'',
+      !done&&x.remindAt&&new Date(x.remindAt)>new Date()?'Reminder '+new Date(x.remindAt).toLocaleString(undefined,{weekday:'short',hour:'2-digit',minute:'2-digit'}):''].filter(Boolean).map(esc).join(' · ')}</small></div>
     <span class="r ${tone}">${x.due?esc(done?fmt(x.due,{day:'numeric',month:'short'}):relDue(x.due)):'No date'}</span></div>`}
 
 V.meals=function(){
@@ -824,7 +887,7 @@ V.schedule=function(){
   const tm=e=>esc(e.start||'All day')+(e.end?'–'+esc(e.end):'');
   return `
   <header class="page-head"><div><h1>Schedule</h1><p>Classes, plans and deadlines in one week view. Weekly events repeat on their own.</p></div>
-    <div class="head-actions">${stepper('week',weekLabel(ws))}${ws!==weekStart(t)?'<button class="btn" data-act="week" data-n="0" type="button">This week</button>':''}${mcp&&!calEnabled()?'<button class="btn" data-act="calShow" type="button">Show Google Calendar</button>':''}<button class="btn btn-primary" data-act="addEvent" type="button">Add event</button></div></header>
+    <div class="head-actions">${stepper('week',weekLabel(ws))}${ws!==weekStart(t)?'<button class="btn" data-act="week" data-n="0" type="button">This week</button>':''}${(mcp||mode==='supa')&&!calEnabled()?`<button class="btn" data-act="calShow" type="button">${mode==='supa'&&!calLinked?'Connect Google Calendar':'Show Google Calendar'}</button>`:''}<button class="btn btn-primary" data-act="addEvent" type="button">Add event</button></div></header>
   ${calBar(ws)}
   <section class="week">${[...Array(7)].map((_,i)=>{const d=addDays(ws,i),ev=dayItems(d),due=S.tasks.filter(x=>x.due===d&&x.status!=='done');
     return `<div class="day ${d===t?'is-today':''}"><div class="day-h"><span>${esc(fmt(d,{weekday:'short'}))}</span><small>${esc(fmt(d,{day:'numeric',month:'short'}))}</small></div>
@@ -1056,12 +1119,19 @@ function submitForm(){
 }
 
 /* ---------- forms per record type ---------- */
-function taskForm(x){x=x||{};openForm({title:x.id?'Edit assignment':'Add assignment',values:x,onDelete:x.id&&(()=>removeUndo('tasks',x.id,'Assignment')),fields:[
+function taskForm(x){x=x||{};const supa=mode==='supa';
+  openForm({title:x.id?'Edit assignment':'Add assignment',values:{...x,remind:x.remind||(x.id?'none':cfg().remindDefault||'eve'),remindAt:x.remindAt?localInput(x.remindAt):''},onDelete:x.id&&(()=>removeUndo('tasks',x.id,'Assignment')),fields:[
   {name:'title',label:'Assignment',req:true,full:true,ph:'Problem set 5'},{name:'course',label:'Course',ph:'Mathematics'},
   {name:'due',label:'Due date',type:'date'},{name:'priority',label:'Priority',type:'select',def:'med',options:[['high','High'],['med','Medium'],['low','Low']]},
   {name:'status',label:'Status',type:'select',def:'todo',options:[['todo','Not started'],['doing','In progress'],['done','Done']]},
+  {name:'remind',label:'Remind me',type:'select',full:true,options:REMIND,showIf:()=>supa},
+  {name:'remindAt',label:'Reminder time',type:'datetime-local',full:true,showIf:v=>supa&&v.remind==='custom'},
   {name:'notes',label:'Notes',type:'textarea',full:true}],
-  onSave:v=>{saveClean('tasks',{...clone(x),...v,doneAt:v.status==='done'?(x.doneAt||TODAY()):''})}})}
+  onSave:v=>{const kind=v.remind,custom=v.remindAt;delete v.remind;delete v.remindAt;
+    const rec={...clone(x),...v,doneAt:v.status==='done'?(x.doneAt||TODAY()):''};
+    if(supa){const r=remindTime(kind,v.due,custom);if(r.err)return r.err;rec.remind=kind;rec.remindAt=r.at}
+    saveClean('tasks',rec);
+    if(supa&&rec.remindAt&&rec.status!=='done'){if(new Date(rec.remindAt)>new Date())nudgePush();else toast('Saved. That reminder time has already passed, so no reminder will be sent.')}}})}
 function projectForm(x,kind){x=x||{kind,status:'active',milestones:[]};openForm({title:x.id?'Edit project':'Add project',values:x,onDelete:x.id&&(()=>removeUndo('projects',x.id,'Project')),fields:[
   {name:'name',label:'Project',req:true,full:true},{name:'status',label:'Status',type:'select',options:[['active','Active'],['paused','Paused'],['idea','Idea'],['done','Done']]},
   {name:'due',label:'Deadline (optional)',type:'date'},{name:'next',label:'Next step',full:true,ph:'The one thing to do next'},
@@ -1121,7 +1191,8 @@ function settingsForm(){const c=cfg();openForm({title:'Settings',values:{...c,fo
   {name:'name',label:'Your name',ph:'Shown in the greeting'},{name:'currency',label:'Currency symbol',ph:'$'},
   {name:'unit',label:'Weight unit',type:'select',options:[['kg','kg'],['lb','lb']]},
   {name:'workoutTarget',label:'Workouts per week target',type:'number'},
-  {name:'goalWeight',label:'Goal weight (optional)',type:'number'}],
+  {name:'goalWeight',label:'Goal weight (optional)',type:'number'},
+  {name:'remindDefault',label:'Default reminder for new assignments',type:'select',full:true,options:REMIND.filter(o=>o[0]!=='custom'),showIf:()=>mode==='supa'}],
   onSave:v=>{const font=v.font;delete v.font;saveCfg(v);
     if(font!==((find('settings','prefs')||{}).font||'jakarta')||font!==curFont){applyFont(font);save('settings',{...clone(find('settings','prefs')||{}),id:'prefs',font})}}})}
 function visionForm(){openForm({title:'The future you\'re building',values:cfg(),fields:[
@@ -1173,7 +1244,22 @@ const A={
   settings:()=>{closeSheet();settingsForm()},closeDlg,closeSheet,
   quickAdd:()=>{if(mode!=='auth')quickSheet()},more:()=>moreSheet(),palette:()=>{if(mode!=='auth')palette()},
   account:()=>{if(mode==='supa')accountSheet()},
-  signOut:()=>{closeSheet();if(sb)sb.auth.signOut().catch(()=>{})},
+  signOut:async()=>{closeSheet();await dropDeviceSub();if(sb)sb.auth.signOut().catch(()=>{})},
+  calConnect:()=>calConnectSheet(),
+  calUnlink:async()=>{try{await hubCall({action:'calUnlink'});calLinked=false;Object.keys(gcal).forEach(k=>delete gcal[k]);
+      try{localStorage.setItem('onehub.callinked','0');localStorage.removeItem('onehub.cal')}catch(e){}closeSheet();render();toast('Google Calendar disconnected')}
+    catch(e){toast('The calendar could not be disconnected. Try again.')}},
+  pushOn:async()=>{let perm;try{perm=await Notification.requestPermission()}catch(e){perm=Notification.permission}
+    if(perm!=='granted'){paintNotif();toast(perm==='denied'?'Notifications are blocked. Allow them in your settings first.':'Notifications were not turned on.');return}
+    try{const reg=await swReady();let sub=await reg.pushManager.getSubscription();
+      if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(HC.vapid)});
+      const j=sub.toJSON(),r=await sb.from('hub_push_subs').upsert({user_id:sbUser.id,endpoint:j.endpoint,p256dh:j.keys.p256dh,auth:j.keys.auth},{onConflict:'user_id,endpoint'});
+      if(r.error)throw r.error;toast('Notifications are on for this device')}
+    catch(e){toast('Notifications could not be turned on. '+(e&&e.message?e.message:''))}
+    paintNotif()},
+  pushOff:async()=>{await dropDeviceSub();toast('Notifications are off for this device');paintNotif()},
+  pushTest:()=>{hubCall({action:'testPush'}).then(d=>toast(d.sent?'Test sent. It should arrive in a few seconds.':'No device has notifications on yet.'))
+    .catch(e=>toast(e.code==='server_unavailable'?'The hub server could not be reached.':'The test could not be sent.'))},
   exportData:()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='one-hub-backup-'+TODAY()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000)},
   quick:t=>runQuick(+t.dataset.i),palRun:t=>palRun(+t.dataset.i),
   toastAct:()=>{const f=toastFn;toastFn=null;$('#toast').hidden=true;if(f)f()},
@@ -1198,7 +1284,7 @@ const A={
   delGrocery:t=>remove('groceries',t.dataset.id),
   addTx:()=>txForm({type:'expense',date:ui.month===TODAY().slice(0,7)?TODAY():ui.month+'-01'}),editTx:t=>txForm(find('tx',t.dataset.id)),editBudgets:()=>budgetsForm(),
   addEvent:t=>eventForm({date:t.dataset.date||(ui.week===weekStart(TODAY())?TODAY():ui.week),repeat:'none',cat:'Class'}),editEvent:t=>eventForm(find('events',t.dataset.id)),
-  calShow:()=>{save('settings',{...clone(find('settings','prefs')||{}),id:'prefs',gcal:true})},
+  calShow:()=>{if(mode==='supa'&&!calLinked){calConnectSheet();return}save('settings',{...clone(find('settings','prefs')||{}),id:'prefs',gcal:true})},
   calHide:()=>{Object.keys(gcal).forEach(k=>delete gcal[k]);save('settings',{...clone(find('settings','prefs')||{}),id:'prefs',gcal:false})},
   calRefresh:()=>{if(calEnabled()){gcalLoad(ui.week,true);render()}},
   addWeight:()=>weightForm(),editWeight:t=>weightForm(find('weights',t.dataset.id)),
@@ -1222,13 +1308,22 @@ const C={
     rec.days[d]={...(rec.days[d]||{}),[t.dataset.slot]:t.value.trim()};saveClean('mealweeks',rec,true);scheduleRender()},
 };
 const F={
+  calLink:async f=>{const msg=$('#cal-msg',f),url=$('#cal-url',f).value.trim(),say=(t,ok)=>{msg.textContent=t;msg.style.color=ok?'var(--good)':''};
+    if(!/^https:\/\/calendar\.google\.com\/calendar\/ical\/.+\.ics(\?.*)?$/.test(url)){say('That is not a Google Calendar secret address. It starts with https://calendar.google.com/calendar/ical/ and ends with .ics.');return}
+    say('Checking the address with Google…',true);
+    try{await hubCall({action:'calLink',url});calLinked=true;try{localStorage.setItem('onehub.callinked','1')}catch(e){}
+      Object.keys(gcal).forEach(k=>delete gcal[k]);save('settings',{...clone(find('settings','prefs')||{}),id:'prefs',gcal:true},true);
+      closeSheet();render();toast('Google Calendar connected')}
+    catch(e){say(e.code==='bad_url'?'That is not a Google Calendar secret address. It starts with https://calendar.google.com/calendar/ical/ and ends with .ics.'
+      :e.code==='ics_gone'?'Google did not accept that address. Copy the secret address again from Google Calendar.'
+      :e.code==='not_signed_in'?'Sign in again, then connect.':'The hub server could not be reached. Check your connection and try again.')}},
   auth:async(f,btn)=>{const msg=$('#au-msg',f),email=$('#au-email',f).value.trim(),pw=$('#au-pass',f).value,say=(t,ok)=>{msg.textContent=t;msg.style.color=ok?'var(--good)':''};
     if(!sb){say('The sign-in service could not be reached. Check your connection and reload.');return}
     if(!email||pw.length<8){say('Enter your email and a password of at least 8 characters.');return}
     say('Working…',true);
     try{const r=btn&&btn.dataset.up?await sb.auth.signUp({email,password:pw}):await sb.auth.signInWithPassword({email,password:pw});
       if(r.error)throw r.error;
-      if(r.data&&r.data.session){sbUser=r.data.session.user;enterMode('supa');pull()}
+      if(r.data&&r.data.session){sbUser=r.data.session.user;enterMode('supa');pull();calCheck()}
       else say('Account created. Open the confirmation email, then come back here and sign in.',true)}
     catch(e){const m=e&&e.message||'';say(/fetch|network/i.test(m)?'The sign-in service could not be reached. Check your connection and try again.':m?m.replace(/\.$/,'')+'.':'That did not work. Try again.')}},
   addGrocery:f=>{const i=$('input',f),v=i.value.trim();if(!v)return;i.value='';save('groceries',{text:v,done:false,at:Date.now()})},
